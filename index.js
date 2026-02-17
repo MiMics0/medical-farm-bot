@@ -101,9 +101,15 @@ async function sendDailyAvailabilityPost() {
   const guild = client.guilds.cache.get(GUILD_ID);
   const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
 
+  // 👉 วันที่ของวันถัดไป
+  const nextDate = moment()
+    .tz("Asia/Bangkok")
+    .add(1, "day")
+    .format("DD/MM/YYYY");
+
   const embed = new EmbedBuilder()
     .setColor("#2B8AF7")
-    .setTitle("📋 ระบบลงสถานะเวรฟาร์มประจำวันวันที่ ${nextDate}")
+    .setTitle(`📋 ระบบลงสถานะเวรฟาร์มประจำวันที่ ${nextDate}`)
     .setDescription("กรุณาเลือกสถานะของท่านด้านล่าง")
     .addFields(
       { name: "🟢 ว่าง", value: "สามารถเข้าปฏิบัติหน้าที่ได้", inline: true },
@@ -258,4 +264,5 @@ client.on("interactionCreate", async interaction => {
 /* ========================================= */
 
 client.login(TOKEN);
+
 
