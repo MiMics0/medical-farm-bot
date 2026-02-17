@@ -81,7 +81,7 @@ client.once("clientReady", async () => {
   await sendDailyAvailabilityPost();
 
   cron.schedule(
-    "0 12 * * *",
+    "0 0 * * *",
     async () => {
       await runDailyMatch();
       await sendDailyAvailabilityPost();
@@ -103,7 +103,7 @@ async function sendDailyAvailabilityPost() {
 
   const embed = new EmbedBuilder()
     .setColor("#2B8AF7")
-    .setTitle("📋 ระบบลงสถานะเวรฟาร์มประจำวัน")
+    .setTitle("📋 ระบบลงสถานะเวรฟาร์มประจำวันวันที่ ${nextDate}")
     .setDescription("กรุณาเลือกสถานะของท่านด้านล่าง")
     .addFields(
       { name: "🟢 ว่าง", value: "สามารถเข้าปฏิบัติหน้าที่ได้", inline: true },
@@ -258,3 +258,4 @@ client.on("interactionCreate", async interaction => {
 /* ========================================= */
 
 client.login(TOKEN);
+
