@@ -90,7 +90,7 @@ client.once("ready", async () => {
 
   // เที่ยงคืน: จับคู่ + ส่งโพสต์ถามวันใหม่
   cron.schedule(
-    "0 0 * * *",
+    "0 12 * * *",
     async () => {
       await runDailyMatch();
       await sendDailyAvailabilityPost();
@@ -302,4 +302,5 @@ client.on("interactionCreate", async interaction => {
 /* ========================================= */
 
 client.login(TOKEN);
+
 
