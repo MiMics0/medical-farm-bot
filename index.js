@@ -42,10 +42,6 @@ function loadData() {
 function saveData(data) {
   fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
 }
-
-function getToday() {
-  return moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
-}
 /* ========================================= */
 
 const client = new Client({
@@ -73,50 +69,36 @@ async function registerCommands() {
     { body: commands }
   );
 }
-/* ---------------------------------- */
 
-client.once("clientReady", async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  await registerCommands();
+/* ================= STATUS SYSTEM ================= */
 
-  await sendDailyAvailabilityPost();
-
-  // จับคู่ + เปิดลงสถานะวันถัดไป
-  cron.schedule(
-    "0 0 * * *",
-    async () => {
-      await runDailyMatch();
-      await sendDailyAvailabilityPost();
-    },
-    { timezone: "Asia/Bangkok" }
-  );
-
-  // คิดค่าปรับรายวัน
-  cron.schedule(
-    "59 23 * * *",
-    applyDailyFines,
-    { timezone: "Asia/Bangkok" }
-  );
-
-  // 🔁 รีเซ็ตอันดับทุกวันอาทิตย์ 00:00
-  cron.schedule(
-    "0 0 * * 0",
-    resetWeeklyLeaderboard,
-    { timezone: "Asia/Bangkok" }
-  );
-});
-
-/* ================= DAILY POST ================= */
 async function sendDailyAvailabilityPost() {
   const guild = client.guilds.cache.get(GUILD_ID);
   const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+
+  let data = loadData();
+
+  // 🔥 ลบ Embed เก่าอัตโนมัติ
+  if (data.statusMessageId) {
+    try {
+      const oldMsg = await channel.messages.fetch(data.statusMessageId);
+      await oldMsg.delete();
+    } catch {}
+  }
+
+  data.availability = {};
+  data.statusClosed = false;
 
   const nextDate = moment().tz("Asia/Bangkok").add(1, "day").format("DD/MM/YYYY");
 
   const embed = new EmbedBuilder()
     .setColor("#2B8AF7")
     .setTitle(`📋 ระบบลงสถานะเวรฟาร์มประจำวันที่ ${nextDate}`)
-    .setDescription("กรุณาเลือกสถานะของท่านด้านล่าง")
+    .setDescription("กรุณาเลือกสถานะของท่านด้านล่าง\n⏳ ปิดรับเวลา 23:59")
+    .addFields(
+      { name: "🟢 ว่าง (0)", value: "-", inline: true },
+      { name: "🔴 ไม่ว่าง (0)", value: "-", inline: true }
+    )
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -124,156 +106,111 @@ async function sendDailyAvailabilityPost() {
     new ButtonBuilder().setCustomId("unavailable").setLabel("ไม่ว่าง").setStyle(ButtonStyle.Danger)
   );
 
-  await channel.send({
+  const message = await channel.send({
     content: `📌 <@&${REQUIRED_ROLE_ID}>`,
     embeds: [embed],
     components: [row]
   });
-}
-/* ========================================= */
 
-/* ================= MATCH ================= */
-async function runDailyMatch() {
+  data.statusMessageId = message.id;
+  saveData(data);
+}
+
+async function updateAvailabilityEmbed(closed = false) {
   const guild = client.guilds.cache.get(GUILD_ID);
   const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
-  const adminChannel = guild.channels.cache.get(ADMIN_CHANNEL_ID);
+  const data = loadData();
+  if (!data.statusMessageId) return;
 
-  let data = loadData();
-  const today = getToday();
+  const message = await channel.messages.fetch(data.statusMessageId);
 
-  const availableIds = Object.entries(data.availability || {})
-    .filter(([_, v]) => v === true)
-    .map(([id]) => id);
+  const available = [];
+  const unavailable = [];
 
-  if (availableIds.length < 2) {
-    await adminChannel.send("⚠️ วันนี้มีผู้ลงว่างไม่เพียงพอ");
-    data.availability = {};
-    saveData(data);
-    return;
+  for (const [userId, status] of Object.entries(data.availability || {})) {
+    if (status) available.push(`<@${userId}>`);
+    else unavailable.push(`<@${userId}>`);
   }
 
-  const pair = availableIds.sort(() => 0.5 - Math.random()).slice(0, 2);
-
-  data.today = { date: today, pair, proofs: {} };
-  data.availability = {};
-  saveData(data);
+  const nextDate = moment().tz("Asia/Bangkok").add(1, "day").format("DD/MM/YYYY");
 
   const embed = new EmbedBuilder()
-    .setColor("#00C851")
-    .setTitle("📅 ประกาศเวรฟาร์มประจำวัน")
-    .setDescription(pair.map(id => `<@${id}>`).join("\n"))
+    .setColor(closed ? "#6c757d" : "#2B8AF7")
+    .setTitle(`📋 ระบบลงสถานะเวรฟาร์มประจำวันที่ ${nextDate}`)
+    .setDescription(
+      closed
+        ? "🔒 ปิดรับการลงสถานะแล้ว"
+        : "กรุณาเลือกสถานะของท่านด้านล่าง\n⏳ ปิดรับเวลา 23:59"
+    )
+    .addFields(
+      {
+        name: `🟢 ว่าง (${available.length})`,
+        value: available.length ? available.join("\n") : "-",
+        inline: true
+      },
+      {
+        name: `🔴 ไม่ว่าง (${unavailable.length})`,
+        value: unavailable.length ? unavailable.join("\n") : "-",
+        inline: true
+      }
+    )
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("send_proof")
-      .setLabel("ส่งหลักฐานการฟาร์ม")
-      .setStyle(ButtonStyle.Primary)
+      .setCustomId("available")
+      .setLabel("ว่าง")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(closed),
+    new ButtonBuilder()
+      .setCustomId("unavailable")
+      .setLabel("ไม่ว่าง")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(closed)
   );
 
-  await channel.send({ embeds: [embed], components: [row] });
+  await message.edit({ embeds: [embed], components: [row] });
 }
+
 /* ========================================= */
 
-/* ================= FINES + COUNT ================= */
-async function applyDailyFines() {
-  let data = loadData();
-  if (!data.today?.pair) return;
+client.once("clientReady", async () => {
+  console.log(`Logged in as ${client.user.tag}`);
+  await registerCommands();
 
-  const guild = client.guilds.cache.get(GUILD_ID);
-  const adminChannel = guild.channels.cache.get(ADMIN_CHANNEL_ID);
+  await sendDailyAvailabilityPost();
 
-  data.fines = data.fines || {};
-  data.farmCount = data.farmCount || {};
+  // 🔒 ปิดระบบ 23:59
+  cron.schedule(
+    "59 23 * * *",
+    async () => {
+      let data = loadData();
+      data.statusClosed = true;
+      saveData(data);
+      await updateAvailabilityEmbed(true);
+    },
+    { timezone: "Asia/Bangkok" }
+  );
 
-  for (const userId of data.today.pair) {
-    if (!data.today.proofs[userId]) {
-      data.fines[userId] = (data.fines[userId] || 0) + FINE_AMOUNT;
-
-      const embed = new EmbedBuilder()
-        .setColor("#FF4444")
-        .setTitle("💸 แจ้งเตือนค่าปรับเวรฟาร์ม")
-        .setDescription(`<@${userId}> ไม่ส่งหลักฐาน`)
-        .addFields({ name: "ยอดสะสม", value: `${data.fines[userId].toLocaleString()} IC` })
-        .setTimestamp();
-
-      await adminChannel.send({ embeds: [embed] });
-    }
-  }
-
-  saveData(data);
-}
-/* ========================================= */
-
-/* ================= WEEKLY RESET ================= */
-async function resetWeeklyLeaderboard() {
-  let data = loadData();
-  const farmCount = data.farmCount || {};
-
-  const sorted = Object.entries(farmCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10);
-
-  const guild = client.guilds.cache.get(GUILD_ID);
-  const adminChannel = guild.channels.cache.get(ADMIN_CHANNEL_ID);
-
-  const rankingText = sorted.length
-    ? sorted.map((u, i) => `**${i + 1}.** <@${u[0]}> — ${u[1]} ครั้ง`).join("\n")
-    : "ไม่มีข้อมูล";
-
-  const embed = new EmbedBuilder()
-    .setColor("#FFD700")
-    .setTitle("🏆 อันดับฟาร์มประจำสัปดาห์")
-    .setDescription(rankingText)
-    .setFooter({ text: "ระบบรีเซ็ตอันดับทุกสัปดาห์" })
-    .setTimestamp();
-
-  await adminChannel.send({ embeds: [embed] });
-
-  data.farmCount = {}; // รีเซ็ต
-  saveData(data);
-}
-/* ========================================= */
+  // 🔓 เปิดระบบใหม่ 00:00
+  cron.schedule(
+    "0 0 * * *",
+    async () => {
+      await sendDailyAvailabilityPost();
+    },
+    { timezone: "Asia/Bangkok" }
+  );
+});
 
 /* ================= INTERACTIONS ================= */
 client.on("interactionCreate", async interaction => {
   let data = loadData();
 
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === "test")
-      return interaction.reply({ content: "✅ Bot ทำงานปกติ", flags: 64 });
-
-    if (interaction.commandName === "fine") {
-      const total = data.fines?.[interaction.user.id] || 0;
-      return interaction.reply({
-        content: `💸 ค่าปรับสะสม: ${total.toLocaleString()} IC`,
-        flags: 64
-      });
-    }
-
-    if (interaction.commandName === "leaderboard") {
-      const farmCount = data.farmCount || {};
-      const sorted = Object.entries(farmCount)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10);
-
-      const text = sorted.length
-        ? sorted.map((u, i) => `**${i + 1}.** <@${u[0]}> — ${u[1]} ครั้ง`).join("\n")
-        : "ยังไม่มีข้อมูล";
-
-      const embed = new EmbedBuilder()
-        .setColor("#FFD700")
-        .setTitle("🏆 อันดับฟาร์มประจำสัปดาห์")
-        .setDescription(text)
-        .setTimestamp();
-
-      return interaction.reply({ embeds: [embed], flags: 64 });
-    }
-  }
-
   if (!interaction.isButton()) return;
-
   const member = interaction.member;
+
+  if (data.statusClosed)
+    return interaction.reply({ content: "🔒 ปิดรับการลงสถานะแล้ว", flags: 64 });
 
   if (interaction.customId === "available") {
     if (!member.roles.cache.has(REQUIRED_ROLE_ID))
@@ -283,6 +220,7 @@ client.on("interactionCreate", async interaction => {
     data.availability[member.id] = true;
     saveData(data);
 
+    await updateAvailabilityEmbed();
     return interaction.reply({ content: "✅ บันทึกสถานะ: ว่าง", flags: 64 });
   }
 
@@ -291,26 +229,9 @@ client.on("interactionCreate", async interaction => {
     data.availability[member.id] = false;
     saveData(data);
 
+    await updateAvailabilityEmbed();
     return interaction.reply({ content: "❌ บันทึกสถานะ: ไม่ว่าง", flags: 64 });
   }
-
-  if (interaction.customId === "send_proof") {
-    const today = getToday();
-    if (!data.today || data.today.date !== today)
-      return interaction.reply({ content: "⛔ หมดเวลาแล้ว", flags: 64 });
-
-    if (!data.today.pair.includes(member.id))
-      return interaction.reply({ content: "⛔ วันนี้ไม่ใช่เวรของคุณ", flags: 64 });
-
-    data.today.proofs[member.id] = true;
-    data.farmCount = data.farmCount || {};
-    data.farmCount[member.id] = (data.farmCount[member.id] || 0) + 1;
-
-    saveData(data);
-
-    return interaction.reply({ content: "📸 บันทึกหลักฐานเรียบร้อย", flags: 64 });
-  }
 });
-/* ========================================= */
 
 client.login(TOKEN);
