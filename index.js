@@ -32,10 +32,17 @@ app.listen(process.env.PORT || 3000);
 /* ========================================= */
 
 /* ================= DATA ================= */
-const DATA_FILE = "./data.json";
+const DATA_FILE = "/app/data/data.json";
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) fs.writeJsonSync(DATA_FILE, {});
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.ensureFileSync(DATA_FILE);
+    fs.writeJsonSync(DATA_FILE, {
+      availability: {},
+      statusClosed: false,
+      statusMessageId: null
+    });
+  }
   return fs.readJsonSync(DATA_FILE);
 }
 
@@ -49,16 +56,13 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages
+    GatewayIntentBits.MessageContent
   ]
 });
 
 /* ---------- Slash Commands ---------- */
 const commands = [
-  new SlashCommandBuilder().setName("test").setDescription("ทดสอบบอท"),
-  new SlashCommandBuilder().setName("fine").setDescription("ดูยอดค่าปรับสะสม"),
-  new SlashCommandBuilder().setName("leaderboard").setDescription("อันดับการฟาร์มประจำสัปดาห์")
+  new SlashCommandBuilder().setName("test").setDescription("ทดสอบบอท")
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
@@ -78,7 +82,7 @@ async function sendDailyAvailabilityPost() {
 
   let data = loadData();
 
-  // 🔥 ลบ Embed เก่าอัตโนมัติ
+  // ลบของเก่า ถ้ายังอยู่
   if (data.statusMessageId) {
     try {
       const oldMsg = await channel.messages.fetch(data.statusMessageId);
@@ -102,8 +106,14 @@ async function sendDailyAvailabilityPost() {
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("available").setLabel("ว่าง").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("unavailable").setLabel("ไม่ว่าง").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder()
+      .setCustomId("available")
+      .setLabel("ว่าง")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("unavailable")
+      .setLabel("ไม่ว่าง")
+      .setStyle(ButtonStyle.Danger)
   );
 
   const message = await channel.send({
@@ -178,9 +188,24 @@ client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await registerCommands();
 
-  await sendDailyAvailabilityPost();
+  const data = loadData();
+  const guild = client.guilds.cache.get(GUILD_ID);
+  const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
 
-  // 🔒 ปิดระบบ 23:59
+  // ✅ ไม่ส่งใหม่ถ้ายังมี embed เดิมอยู่
+  if (data.statusMessageId) {
+    try {
+      await channel.messages.fetch(data.statusMessageId);
+      console.log("Status message exists. No new message sent.");
+    } catch {
+      console.log("Old message missing. Creating new one.");
+      await sendDailyAvailabilityPost();
+    }
+  } else {
+    await sendDailyAvailabilityPost();
+  }
+
+  // 🔒 ปิด 23:59
   cron.schedule(
     "59 23 * * *",
     async () => {
@@ -192,7 +217,7 @@ client.once("clientReady", async () => {
     { timezone: "Asia/Bangkok" }
   );
 
-  // 🔓 เปิดระบบใหม่ 00:00
+  // 🔓 เปิดใหม่ 00:00
   cron.schedule(
     "0 0 * * *",
     async () => {
@@ -204,9 +229,9 @@ client.once("clientReady", async () => {
 
 /* ================= INTERACTIONS ================= */
 client.on("interactionCreate", async interaction => {
-  let data = loadData();
-
   if (!interaction.isButton()) return;
+
+  let data = loadData();
   const member = interaction.member;
 
   if (data.statusClosed)
@@ -216,19 +241,15 @@ client.on("interactionCreate", async interaction => {
     if (!member.roles.cache.has(REQUIRED_ROLE_ID))
       return interaction.reply({ content: "⛔ คุณไม่มียศที่อนุญาต", flags: 64 });
 
-    data.availability = data.availability || {};
     data.availability[member.id] = true;
     saveData(data);
-
     await updateAvailabilityEmbed();
     return interaction.reply({ content: "✅ บันทึกสถานะ: ว่าง", flags: 64 });
   }
 
   if (interaction.customId === "unavailable") {
-    data.availability = data.availability || {};
     data.availability[member.id] = false;
     saveData(data);
-
     await updateAvailabilityEmbed();
     return interaction.reply({ content: "❌ บันทึกสถานะ: ไม่ว่าง", flags: 64 });
   }
