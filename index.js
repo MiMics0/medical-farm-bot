@@ -41,6 +41,7 @@ function loadData() {
       availability: {},
       statusClosed: false,
       statusMessageId: null,
+      statusDate: null,
       weights: {},
       currentPair: null,
       farmStatus: {},
@@ -50,7 +51,10 @@ function loadData() {
   }
 
   const data = fs.readJsonSync(DATA_FILE);
+
   if (!data.farmCount) data.farmCount = {};
+  if (!data.statusDate) data.statusDate = null;
+
   return data;
 }
 
@@ -106,6 +110,7 @@ async function sendStatusPost() {
   const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
   const data = loadData();
 
+  const todayKey = moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
   const nextDay = moment().tz("Asia/Bangkok").add(1, "day").format("DD/MM/YYYY");
 
   const embed = new EmbedBuilder()
@@ -129,6 +134,10 @@ async function sendStatusPost() {
   });
 
   data.statusMessageId = msg.id;
+  data.statusDate = todayKey;
+  data.availability = {};
+  data.statusClosed = false;
+
   saveData(data);
 }
 
@@ -179,7 +188,6 @@ async function matchPair() {
   const u2 = weightedPick(availableUsers.filter(u => u !== u1), data.weights);
 
   data.currentPair = [u1, u2];
-
   data.farmStatus[u1] = { confirm: false };
   data.farmStatus[u2] = { confirm: false };
 
@@ -190,10 +198,7 @@ async function matchPair() {
   const embed = new EmbedBuilder()
     .setColor("#2b2d31")
     .setTitle(`เวรฟาร์มประจำวันที่ ${today}`)
-    .setDescription(
-      `• <@${u1}>\n` +
-      `• <@${u2}>`
-    )
+    .setDescription(`• <@${u1}>\n• <@${u2}>`)
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
@@ -214,9 +219,23 @@ async function matchPair() {
 
 client.once("clientReady", async () => {
   await registerCommands();
-  await sendStatusPost();
 
-  cron.schedule("59 23 * * *", async () => {
+  const guild = client.guilds.cache.get(GUILD_ID);
+  const channel = guild.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+  const data = loadData();
+  const todayKey = moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
+
+  if (data.statusDate !== todayKey) {
+    if (data.statusMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(data.statusMessageId);
+        await oldMsg.delete();
+      } catch {}
+    }
+    await sendStatusPost();
+  }
+
+  cron.schedule("0 0 * * *", async () => {
     const data = loadData();
 
     if (data.currentPair) {
@@ -229,7 +248,17 @@ client.once("clientReady", async () => {
     }
 
     saveData(data);
+
+    if (data.statusMessageId) {
+      try {
+        const oldMsg = await channel.messages.fetch(data.statusMessageId);
+        await oldMsg.delete();
+      } catch {}
+    }
+
+    await sendStatusPost();
     await matchPair();
+
   }, { timezone: "Asia/Bangkok" });
 });
 
@@ -300,4 +329,3 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
-
