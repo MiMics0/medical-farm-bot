@@ -188,14 +188,14 @@ async function matchPair() {
   const today = moment().tz("Asia/Bangkok").format("DD/MM/YYYY");
 
   const embed = new EmbedBuilder()
-  .setColor("#2b2d31")
-  .setTitle(`เวรฟาร์มประจำวันที่ ${formattedDate}`)
-  .setDescription(
-    `• <@${u1}>\n` +
-    `• <@${u2}>`
-  )
-  .setTimestamp();
-  
+    .setColor("#2b2d31")
+    .setTitle(`เวรฟาร์มประจำวันที่ ${today}`)
+    .setDescription(
+      `• <@${u1}>\n` +
+      `• <@${u2}>`
+    )
+    .setTimestamp();
+
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId("confirm_farm")
@@ -300,3 +300,4 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
