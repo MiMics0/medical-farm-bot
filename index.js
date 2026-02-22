@@ -251,7 +251,7 @@ client.once("clientReady", async () => {
 
 
   /* ================= 00:00 รีเซ็ตวันใหม่ ================= */
-  cron.schedule("0 0 * * *", async () => {
+  cron.schedule("59 23 * * *", async () => {
     const data = loadData();
 
     // คิดคะแนน
@@ -347,6 +347,7 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
 
 
