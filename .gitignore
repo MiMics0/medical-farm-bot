@@ -1,0 +1,3 @@
+# Ignore bot runtime data
+data.json
+/app/data/data.json
