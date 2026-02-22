@@ -237,7 +237,7 @@ client.once("clientReady", async () => {
   }
 
   /* ================= 23:59 ปิดรับ + จับคู่ ================= */
-  cron.schedule("59 23 * * *", async () => {
+  cron.schedule("* * * * *", async () => {
     const data = loadData();
 
     data.statusClosed = true;
@@ -347,4 +347,5 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
