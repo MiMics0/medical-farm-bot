@@ -225,6 +225,7 @@ client.once("clientReady", async () => {
   const data = loadData();
   const todayKey = moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
 
+  // ถ้าวันใหม่ → สร้างโพสต์
   if (data.statusDate !== todayKey) {
     if (data.statusMessageId) {
       try {
@@ -235,9 +236,25 @@ client.once("clientReady", async () => {
     await sendStatusPost();
   }
 
+  /* ================= 23:59 ปิดรับ + จับคู่ ================= */
+  cron.schedule("59 23 * * *", async () => {
+    const data = loadData();
+
+    data.statusClosed = true;
+    saveData(data);
+
+    await updateStatusEmbed(); // เปลี่ยนเป็นสีเทา
+
+    await matchPair(); // ✅ จับคู่ตอนนี้
+
+  }, { timezone: "Asia/Bangkok" });
+
+
+  /* ================= 00:00 รีเซ็ตวันใหม่ ================= */
   cron.schedule("0 0 * * *", async () => {
     const data = loadData();
 
+    // คิดคะแนน
     if (data.currentPair) {
       data.currentPair.forEach(id => {
         const status = data.farmStatus[id];
@@ -249,6 +266,7 @@ client.once("clientReady", async () => {
 
     saveData(data);
 
+    // ลบโพสต์เก่า
     if (data.statusMessageId) {
       try {
         const oldMsg = await channel.messages.fetch(data.statusMessageId);
@@ -257,9 +275,9 @@ client.once("clientReady", async () => {
     }
 
     await sendStatusPost();
-    await matchPair();
 
   }, { timezone: "Asia/Bangkok" });
+
 });
 
 /* ================= INTERACTION ================= */
@@ -329,3 +347,4 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
