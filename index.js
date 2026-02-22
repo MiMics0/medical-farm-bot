@@ -37,23 +37,21 @@ const DATA_FILE = "/app/data/data.json";
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
     fs.ensureFileSync(DATA_FILE);
-    fs.writeJsonSync(DATA_FILE, {
-      availability: {},
-      statusClosed: false,
-      statusMessageId: null,
-      statusDate: null,
-      weights: {},
-      currentPair: null,
-      farmStatus: {},
-      fines: {},
-      farmCount: {}
-    });
+    fs.writeJsonSync(DATA_FILE, {});
   }
 
   const data = fs.readJsonSync(DATA_FILE);
 
-  if (!data.farmCount) data.farmCount = {};
-  if (!data.statusDate) data.statusDate = null;
+  // เติม key ที่หาย
+  data.availability ??= {};
+  data.statusClosed ??= false;
+  data.statusMessageId ??= null;
+  data.statusDate ??= null;
+  data.weights ??= {};
+  data.currentPair ??= null;
+  data.farmStatus ??= {};
+  data.fines ??= {};
+  data.farmCount ??= {};
 
   return data;
 }
@@ -347,6 +345,7 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
 
 
