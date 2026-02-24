@@ -223,20 +223,34 @@ client.once("clientReady", async () => {
 
   const data = loadData();
 
-  if (data.statusDate !== getTodayKey()) {
+  // ✅ เช็คว่าข้อความยังอยู่จริงไหม
+  try {
+    if (!data.statusMessageId) throw new Error("No message saved");
+
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
+    await channel.messages.fetch(data.statusMessageId);
+
+  } catch {
+    // ถ้าไม่มีข้อความหรือ fetch ไม่เจอ → สร้างใหม่
     await sendStatusPost();
   }
 
-  // 23:59 ปิดรับ + จับคู่
+  /* ================= 23:59 ปิดรับ + จับคู่ ================= */
   cron.schedule("59 23 * * *", async () => {
     const data = loadData();
-    data.statusClosed = true;
-    saveData(data);
-    await updateStatusEmbed();
-    await matchPair();
+
+    if (!data.statusClosed) {
+      data.statusClosed = true;
+      saveData(data);
+
+      await updateStatusEmbed();
+      await matchPair();
+    }
+
   }, { timezone: "Asia/Bangkok" });
 
-  // 00:00 รีเซ็ตวันใหม่
+  /* ================= 00:00 รีเซ็ตวันใหม่ ================= */
   cron.schedule("0 0 * * *", async () => {
     const data = loadData();
 
@@ -314,4 +328,5 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
