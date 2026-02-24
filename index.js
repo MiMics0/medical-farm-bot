@@ -96,7 +96,7 @@ function getTodayKey() {
 }
 
 function getDisplayDate() {
-  return moment().tz("Asia/Bangkok").format("DD/MM/YYYY");
+  return moment().tz("Asia/Bangkok").add(1, "day").format("DD/MM/YYYY");
 }
 
 /* ================= STATUS ================= */
@@ -314,3 +314,4 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
