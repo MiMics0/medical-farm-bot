@@ -46,6 +46,7 @@ function loadData() {
   data.statusDate ??= null;
   data.weights ??= {};
   data.currentPair ??= null;
+  data.pairDate ??= null;          // ✅ เพิ่ม
   data.farmStatus ??= {};
   data.fines ??= {};
   data.farmCount ??= {};
@@ -132,7 +133,6 @@ async function sendStatusPost() {
   data.statusDate = getTodayKey();
   data.availability = {};
   data.statusClosed = false;
-  data.currentPair = null;
 
   saveData(data);
 }
@@ -176,7 +176,15 @@ async function matchPair() {
     .filter(([_, v]) => v)
     .map(([id]) => id);
 
-  if (availableUsers.length < 2) return;
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const farmChannel = await guild.channels.fetch(FARM_CHANNEL_ID);
+
+  if (availableUsers.length < 2) {
+    await farmChannel.send({
+      content: `⚠️ วันนี้มีคนกดว่างเพียง ${availableUsers.length} คน\nไม่สามารถจับคู่เวรฟาร์มได้`
+    });
+    return;
+  }
 
   const u1 = weightedPick(availableUsers, data.weights);
   const u2 = weightedPick(availableUsers.filter(u => u !== u1), data.weights);
@@ -184,13 +192,11 @@ async function matchPair() {
   if (!u1 || !u2) return;
 
   data.currentPair = [u1, u2];
+  data.pairDate = getTodayKey(); // ✅ ผูกกับวันจริง
   data.farmStatus[u1] = { confirm: false };
   data.farmStatus[u2] = { confirm: false };
 
   saveData(data);
-
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const farmChannel = await guild.channels.fetch(FARM_CHANNEL_ID);
 
   const embed = new EmbedBuilder()
     .setColor("#2b2d31")
@@ -223,44 +229,41 @@ client.once("clientReady", async () => {
 
   const data = loadData();
 
-  // ✅ เช็คว่าข้อความยังอยู่จริงไหม
   try {
-    if (!data.statusMessageId) throw new Error("No message saved");
-
+    if (!data.statusMessageId) throw new Error();
     const guild = await client.guilds.fetch(GUILD_ID);
     const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
     await channel.messages.fetch(data.statusMessageId);
-
   } catch {
-    // ถ้าไม่มีข้อความหรือ fetch ไม่เจอ → สร้างใหม่
     await sendStatusPost();
   }
 
-  /* ================= 23:59 ปิดรับ + จับคู่ ================= */
+  // 23:59 ปิดรับ + จับคู่
   cron.schedule("59 23 * * *", async () => {
     const data = loadData();
+    data.statusClosed = true;
+    saveData(data);
 
-    if (!data.statusClosed) {
-      data.statusClosed = true;
-      saveData(data);
-
-      await updateStatusEmbed();
-      await matchPair();
-    }
-
+    await updateStatusEmbed();
+    await matchPair();
   }, { timezone: "Asia/Bangkok" });
 
-  /* ================= 00:00 รีเซ็ตวันใหม่ ================= */
+  // 00:00 รีเซ็ตวันใหม่
   cron.schedule("0 0 * * *", async () => {
     const data = loadData();
 
-    if (data.currentPair) {
+    if (data.currentPair && data.pairDate === getTodayKey()) {
       data.currentPair.forEach(id => {
         if (data.farmStatus[id]?.confirm) {
           data.farmCount[id] = (data.farmCount[id] || 0) + 1;
         }
       });
     }
+
+    // รีเซ็ตเวรเก่า
+    data.currentPair = null;
+    data.pairDate = null;
+    data.farmStatus = {};
 
     saveData(data);
     await sendStatusPost();
@@ -314,8 +317,13 @@ client.on("interactionCreate", async interaction => {
     data.availability[interaction.user.id] = false;
 
   if (interaction.customId === "confirm_farm") {
-    if (!data.currentPair?.includes(interaction.user.id))
+
+    if (
+      !data.currentPair?.includes(interaction.user.id) ||
+      data.pairDate !== getTodayKey()
+    ) {
       return interaction.reply({ content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้", flags: 64 });
+    }
 
     data.farmStatus[interaction.user.id].confirm = true;
     saveData(data);
@@ -328,5 +336,3 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
-
-
