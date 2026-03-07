@@ -231,16 +231,30 @@ client.once("clientReady", async () => {
 
   const data = loadData();
 
-  try {
-    if (!data.statusMessageId) throw new Error();
+let needNewPost = false;
 
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
-    await channel.messages.fetch(data.statusMessageId);
+try {
 
-  } catch {
-    await sendStatusPost();
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
+
+  if (!data.statusMessageId) {
+    needNewPost = true;
+  } else {
+    try {
+      await channel.messages.fetch(data.statusMessageId);
+    } catch {
+      needNewPost = true;
+    }
   }
+
+} catch {
+  needNewPost = true;
+}
+
+if (needNewPost) {
+  await sendStatusPost();
+}
 
   cron.schedule("59 23 * * *", async () => {
     const data = loadData();
@@ -360,3 +374,4 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
