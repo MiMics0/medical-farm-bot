@@ -201,8 +201,8 @@ async function matchPair() {
     .setColor("#2b2d31")
     .setTitle(`เวรฟาร์มประจำวันที่ ${getDisplayDate()}`)
     .setDescription(
-`• <@${u1}> — ❌ ยังไม่ยืนยัน
-• <@${u2}> — ❌ ยังไม่ยืนยัน`
+`• <@${u1}>
+• <@${u2}>`
     )
     .setTimestamp();
 
@@ -378,5 +378,6 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
 
