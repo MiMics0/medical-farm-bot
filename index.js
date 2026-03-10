@@ -257,15 +257,19 @@ if (needNewPost) {
 }
 
   cron.schedule("59 23 * * *", async () => {
-    const data = loadData();
 
-    data.statusClosed = true;
-    saveData(data);
+  const data = loadData();
 
-    await updateStatusEmbed();
-    await matchPair();
+  data.statusClosed = true;
+  data.currentPair = null;
+  data.farmStatus = {};
 
-  }, { timezone: "Asia/Bangkok" });
+  saveData(data);
+
+  await updateStatusEmbed();
+  await matchPair();
+
+}, { timezone: "Asia/Bangkok" });
 
   cron.schedule("0 0 * * *", async () => {
     const data = loadData();
@@ -374,4 +378,5 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
 
