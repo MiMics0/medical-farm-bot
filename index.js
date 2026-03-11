@@ -229,10 +229,10 @@ async function matchPair() {
 
   if (!u1 || !u2) return;
 
-  data.currentPair = [u1, u2];
+  data.currentPair = [String(u1), String(u2)];
   data.farmStatus = {};
-  data.farmStatus[u1] = { confirm: false };
-  data.farmStatus[u2] = { confirm: false };
+  data.farmStatus[String(u1)] = { confirm: false };
+  data.farmStatus[String(u2)] = { confirm: false };
 
   saveData(data);
 
@@ -397,11 +397,13 @@ client.on("interactionCreate", async interaction => {
 
   if (interaction.customId === "confirm_farm") {
 
-    if (!data.currentPair?.includes(interaction.user.id))
-      return interaction.reply({
-        content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้",
-        flags: 64
-      });
+    const pair = (data.currentPair || []).map(String);
+
+  if (!pair.includes(String(interaction.user.id)))
+    return interaction.reply({
+      content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้",
+      flags: 64
+    });
 
     if (data.farmStatus[interaction.user.id]?.confirm)
       return interaction.reply({
@@ -453,3 +455,4 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
+
