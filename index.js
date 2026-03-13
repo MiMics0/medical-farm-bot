@@ -51,6 +51,9 @@ function loadData() {
   data.fines ??= {};
   data.farmCount ??= {};
 
+  /* NEW : weekly farm tracking */
+  data.weeklyFarm ??= {};
+
   return data;
 }
 
@@ -221,15 +224,35 @@ async function matchPair() {
     return;
   }
 
-  const u1 = weightedPick(availableUsers, data.weights);
+  /* ===== NEW WEIGHT SYSTEM ===== */
+
+  const weights = {};
+
+  for (const id of availableUsers) {
+
+    if (data.weeklyFarm[id]) {
+      weights[id] = 1; // เคยโดนแล้ว
+    } else {
+      weights[id] = 5; // ยังไม่เคยโดน
+    }
+
+  }
+
+  const u1 = weightedPick(availableUsers, weights);
+
   const u2 = weightedPick(
     availableUsers.filter(u => u !== u1),
-    data.weights
+    weights
   );
 
   if (!u1 || !u2) return;
 
   data.currentPair = [String(u1), String(u2)];
+
+  /* NEW : mark weekly */
+  data.weeklyFarm[String(u1)] = true;
+  data.weeklyFarm[String(u2)] = true;
+
   data.farmStatus = {};
   data.farmStatus[String(u1)] = { confirm: false };
   data.farmStatus[String(u2)] = { confirm: false };
@@ -296,6 +319,7 @@ client.once("clientReady", async () => {
     await sendStatusPost();
   }
 
+  /* CLOSE STATUS */
   cron.schedule("59 23 * * *", async () => {
 
     const data = loadData();
@@ -311,6 +335,7 @@ client.once("clientReady", async () => {
 
   }, { timezone: "Asia/Bangkok" });
 
+  /* NEW DAY */
   cron.schedule("0 0 * * *", async () => {
 
     const data = loadData();
@@ -327,6 +352,19 @@ client.once("clientReady", async () => {
 
     saveData(data);
     await sendStatusPost();
+
+  }, { timezone: "Asia/Bangkok" });
+
+  /* WEEKLY RESET */
+  cron.schedule("0 0 * * 1", async () => {
+
+    const data = loadData();
+
+    data.weeklyFarm = {};
+
+    saveData(data);
+
+    console.log("Weekly farm reset");
 
   }, { timezone: "Asia/Bangkok" });
 
@@ -399,11 +437,11 @@ client.on("interactionCreate", async interaction => {
 
     const pair = (data.currentPair || []).map(String);
 
-  if (!pair.includes(String(interaction.user.id)))
-    return interaction.reply({
-      content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้",
-      flags: 64
-    });
+    if (!pair.includes(String(interaction.user.id)))
+      return interaction.reply({
+        content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้",
+        flags: 64
+      });
 
     if (data.farmStatus[interaction.user.id]?.confirm)
       return interaction.reply({
@@ -455,4 +493,3 @@ client.on("interactionCreate", async interaction => {
 });
 
 client.login(TOKEN);
-
