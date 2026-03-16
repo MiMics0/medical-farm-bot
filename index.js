@@ -509,3 +509,7 @@ console.error("Uncaught exception:",err);
 /* ================= LOGIN ================= */
 
 client.login(TOKEN);
+
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received but ignored to keep bot alive");
+});
