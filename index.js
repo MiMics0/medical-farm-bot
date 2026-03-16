@@ -10,6 +10,7 @@ SlashCommandBuilder,
 REST,
 Routes
 } from "discord.js";
+
 import cron from "node-cron";
 import moment from "moment-timezone";
 import fs from "fs-extra";
@@ -25,25 +26,30 @@ const REQUIRED_ROLE_ID = "1402559873257832508";
 
 const DATA_FILE = "./data.json";
 
-/* ================= EXPRESS (กัน Railway Sleep) ================= */
+/* ================= EXPRESS ================= */
 
 const app = express();
 
-app.get("/", (_, res) => res.send("Bot running"));
+const PORT = process.env.PORT || 3000;
 
-app.listen(process.env.PORT || 3000);
+app.get("/", (req, res) => {
+res.send("Medical Farm Bot Running");
+});
 
-setInterval(() => {
+app.listen(PORT, () => {
+console.log("Web server running on port " + PORT);
+});
+
+setInterval(()=>{
 console.log("keep alive");
-}, 300000);
+},300000);
 
 /* ================= DATA ================= */
 
-function loadData() {
+function loadData(){
 
-if (!fs.existsSync(DATA_FILE)) {
-fs.ensureFileSync(DATA_FILE);
-fs.writeJsonSync(DATA_FILE, {});
+if(!fs.existsSync(DATA_FILE)){
+fs.writeJsonSync(DATA_FILE,{});
 }
 
 const data = fs.readJsonSync(DATA_FILE);
@@ -62,14 +68,14 @@ return data;
 
 }
 
-function saveData(data) {
-fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
+function saveData(data){
+fs.writeJsonSync(DATA_FILE,data,{spaces:2});
 }
 
 /* ================= CLIENT ================= */
 
 const client = new Client({
-intents: [
+intents:[
 GatewayIntentBits.Guilds,
 GatewayIntentBits.GuildMembers,
 GatewayIntentBits.GuildMessages
@@ -78,33 +84,33 @@ GatewayIntentBits.GuildMessages
 
 /* ================= COMMANDS ================= */
 
-const commands = [
+const commands=[
 
 new SlashCommandBuilder()
 .setName("leaderboard")
-.setDescription("ดูอันดับคนฟาร์มเยอะที่สุด"),
+.setDescription("ดูอันดับคนฟาร์มมากที่สุด"),
 
 new SlashCommandBuilder()
 .setName("fine")
 .setDescription("ดูค่าปรับสะสม")
 
-].map(c => c.toJSON());
+].map(c=>c.toJSON());
 
-const rest = new REST({ version: "10" }).setToken(TOKEN);
+const rest = new REST({version:"10"}).setToken(TOKEN);
 
 /* ================= TIME ================= */
 
-function todayKey() {
+function todayKey(){
 return moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
 }
 
-function displayDate() {
+function displayDate(){
 return moment().tz("Asia/Bangkok").add(1,"day").format("DD/MM/YYYY");
 }
 
 /* ================= RANDOM ================= */
 
-function weightedPick(users, weights){
+function weightedPick(users,weights){
 
 const total = users.reduce((s,id)=>s+(weights[id]||1),0);
 
@@ -126,6 +132,8 @@ async function sendStatusPost(){
 const guild = await client.guilds.fetch(GUILD_ID);
 const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
 
+if(!channel) return;
+
 const data = loadData();
 
 const embed = new EmbedBuilder()
@@ -133,8 +141,8 @@ const embed = new EmbedBuilder()
 .setTitle(`📋 ลงสถานะเวรฟาร์มประจำวันที่ ${displayDate()}`)
 .setDescription("กดเลือกสถานะของคุณ\n⏳ ปิดรับ 23:59")
 .addFields(
-{ name:"🟢 ว่าง (0)",value:"-",inline:true},
-{ name:"🔴 ไม่ว่าง (0)",value:"-",inline:true}
+{name:"🟢 ว่าง (0)",value:"-",inline:true},
+{name:"🔴 ไม่ว่าง (0)",value:"-",inline:true}
 );
 
 const row = new ActionRowBuilder().addComponents(
@@ -173,6 +181,7 @@ saveData(data);
 async function updateStatus(){
 
 const data = loadData();
+
 if(!data.statusMessageId) return;
 
 try{
@@ -229,9 +238,7 @@ const farmChannel = await guild.channels.fetch(FARM_CHANNEL_ID);
 
 if(freeUsers.length <2){
 
-await farmChannel.send(
-`⚠️ คนว่างไม่พอ (${freeUsers.length} คน)`
-);
+await farmChannel.send(`⚠️ คนว่างไม่พอ (${freeUsers.length} คน)`);
 
 return;
 
@@ -267,10 +274,7 @@ saveData(data);
 const embed = new EmbedBuilder()
 .setColor("#2b2d31")
 .setTitle(`เวรฟาร์มประจำวันที่ ${displayDate()}`)
-.setDescription(
-`• <@${u1}>
-• <@${u2}>`
-);
+.setDescription(`• <@${u1}>\n• <@${u2}>`);
 
 const row = new ActionRowBuilder().addComponents(
 
@@ -303,16 +307,18 @@ Routes.applicationGuildCommands(client.user.id,GUILD_ID),
 const data = loadData();
 const today = todayKey();
 
+let needNew=false;
+
+try{
+
 const guild = await client.guilds.fetch(GUILD_ID);
 const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
-
-let needNew=false;
 
 if(!data.statusMessageId) needNew=true;
 
 if(data.statusDate!==today) needNew=true;
 
-if(!needNew && data.statusMessageId){
+if(!needNew){
 
 try{
 await channel.messages.fetch(data.statusMessageId);
@@ -327,6 +333,10 @@ console.log("Creating status embed");
 await sendStatusPost();
 }else{
 console.log("Embed already exists");
+}
+
+}catch(e){
+console.log("Startup check error",e);
 }
 
 /* ===== CRON ===== */
@@ -345,24 +355,6 @@ await matchPair();
 
 cron.schedule("0 0 * * *",async()=>{
 
-const data=loadData();
-
-if(data.currentPair){
-
-data.currentPair.forEach(id=>{
-
-if(data.farmStatus[id]?.confirm){
-
-data.farmCount[id]=(data.farmCount[id]||0)+1;
-
-}
-
-});
-
-}
-
-saveData(data);
-
 await sendStatusPost();
 
 },{timezone:"Asia/Bangkok"});
@@ -370,9 +362,7 @@ await sendStatusPost();
 cron.schedule("0 0 * * 1",async()=>{
 
 const data=loadData();
-
 data.weeklyFarm={};
-
 saveData(data);
 
 console.log("weekly reset");
@@ -386,8 +376,6 @@ console.log("weekly reset");
 client.on("interactionCreate",async interaction=>{
 
 const data=loadData();
-
-/* ===== COMMAND ===== */
 
 if(interaction.isChatInputCommand()){
 
@@ -430,8 +418,6 @@ return interaction.reply({embeds:[embed]});
 }
 
 }
-
-/* ===== BUTTON ===== */
 
 if(!interaction.isButton()) return;
 
@@ -478,10 +464,7 @@ const s2=data.farmStatus[u2]?.confirm?"✅ ยืนยันแล้ว":"❌ 
 const embed=new EmbedBuilder()
 .setColor("#2b2d31")
 .setTitle(`เวรฟาร์มประจำวันที่ ${displayDate()}`)
-.setDescription(
-`• <@${u1}> — ${s1}
-• <@${u2}> — ${s2}`
-);
+.setDescription(`• <@${u1}> — ${s1}\n• <@${u2}> — ${s2}`);
 
 saveData(data);
 
@@ -512,5 +495,17 @@ ephemeral:true
 });
 
 });
+
+/* ================= ERROR HANDLER ================= */
+
+process.on("unhandledRejection",(err)=>{
+console.error("Unhandled rejection:",err);
+});
+
+process.on("uncaughtException",(err)=>{
+console.error("Uncaught exception:",err);
+});
+
+/* ================= LOGIN ================= */
 
 client.login(TOKEN);
