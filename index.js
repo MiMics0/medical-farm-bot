@@ -23,7 +23,7 @@ const ANNOUNCE_CHANNEL_ID = "1472992266464526549";
 const FARM_CHANNEL_ID = "1474396476514893898";
 const REQUIRED_ROLE_ID = "1402559873257832508";
 
-const DATA_FILE = "/app/data/data.json";
+const DATA_FILE = "./data.json";
 
 /* ================= EXPRESS (กัน Railway Sleep) ================= */
 
