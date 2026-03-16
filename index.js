@@ -30,19 +30,19 @@ const DATA_FILE = "./data.json";
 
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 app.get("/", (req, res) => {
-res.send("Medical Farm Bot Running");
+  res.send("OK");
 });
 
-app.listen(PORT, () => {
-console.log("Web server running on port " + PORT);
+app.get("/health", (req, res) => {
+  res.status(200).send("healthy");
 });
 
-setInterval(()=>{
-console.log("keep alive");
-},300000);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log("Web server running on port " + PORT);
+});
 
 /* ================= DATA ================= */
 
