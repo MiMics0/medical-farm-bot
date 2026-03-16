@@ -1,20 +1,21 @@
 import express from "express";
 import {
-  Client,
-  GatewayIntentBits,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  SlashCommandBuilder,
-  REST,
-  Routes,
-  EmbedBuilder
+Client,
+GatewayIntentBits,
+ActionRowBuilder,
+ButtonBuilder,
+ButtonStyle,
+EmbedBuilder,
+SlashCommandBuilder,
+REST,
+Routes
 } from "discord.js";
 import cron from "node-cron";
 import moment from "moment-timezone";
 import fs from "fs-extra";
 
 /* ================= CONFIG ================= */
+
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 
@@ -23,472 +24,492 @@ const FARM_CHANNEL_ID = "1474396476514893898";
 const REQUIRED_ROLE_ID = "1402559873257832508";
 
 const DATA_FILE = "/app/data/data.json";
-/* ========================================= */
 
-/* ================= EXPRESS ================= */
+/* ================= EXPRESS (กัน Railway Sleep) ================= */
+
 const app = express();
-app.get("/", (_, res) => res.send("Bot is running"));
+
+app.get("/", (_, res) => res.send("Bot running"));
+
 app.listen(process.env.PORT || 3000);
-/* ========================================= */
+
+setInterval(() => {
+console.log("keep alive");
+}, 300000);
 
 /* ================= DATA ================= */
+
 function loadData() {
 
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.ensureFileSync(DATA_FILE);
-    fs.writeJsonSync(DATA_FILE, {});
-  }
+if (!fs.existsSync(DATA_FILE)) {
+fs.ensureFileSync(DATA_FILE);
+fs.writeJsonSync(DATA_FILE, {});
+}
 
-  const data = fs.readJsonSync(DATA_FILE);
+const data = fs.readJsonSync(DATA_FILE);
 
-  data.availability ??= {};
-  data.statusClosed ??= false;
-  data.statusMessageId ??= null;
-  data.statusDate ??= null;
-  data.weights ??= {};
-  data.currentPair ??= null;
-  data.farmStatus ??= {};
-  data.fines ??= {};
-  data.farmCount ??= {};
+data.availability ??= {};
+data.statusClosed ??= false;
+data.statusMessageId ??= null;
+data.statusDate ??= null;
+data.currentPair ??= null;
+data.farmStatus ??= {};
+data.fines ??= {};
+data.farmCount ??= {};
+data.weeklyFarm ??= {};
 
-  /* NEW : weekly farm tracking */
-  data.weeklyFarm ??= {};
+return data;
 
-  return data;
 }
 
 function saveData(data) {
-  fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
+fs.writeJsonSync(DATA_FILE, data, { spaces: 2 });
 }
-/* ========================================= */
+
+/* ================= CLIENT ================= */
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages
-  ]
+intents: [
+GatewayIntentBits.Guilds,
+GatewayIntentBits.GuildMembers,
+GatewayIntentBits.GuildMessages
+]
 });
 
 /* ================= COMMANDS ================= */
 
 const commands = [
-  new SlashCommandBuilder()
-    .setName("fine")
-    .setDescription("ดูยอดค่าปรับสะสม"),
 
-  new SlashCommandBuilder()
-    .setName("leaderboard")
-    .setDescription("ดูอันดับคนฟาร์มเยอะที่สุด")
+new SlashCommandBuilder()
+.setName("leaderboard")
+.setDescription("ดูอันดับคนฟาร์มเยอะที่สุด"),
+
+new SlashCommandBuilder()
+.setName("fine")
+.setDescription("ดูค่าปรับสะสม")
+
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-/* ================= UTILS ================= */
+/* ================= TIME ================= */
 
-function weightedPick(users, weights) {
-
-  if (!users.length) return null;
-
-  const total = users.reduce((s, id) => s + (weights[id] || 1), 0);
-  let r = Math.random() * total;
-
-  for (const id of users) {
-    r -= (weights[id] || 1);
-    if (r <= 0) return id;
-  }
-
-  return users[0];
+function todayKey() {
+return moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
 }
 
-function getTodayKey() {
-  return moment().tz("Asia/Bangkok").format("YYYY-MM-DD");
+function displayDate() {
+return moment().tz("Asia/Bangkok").add(1,"day").format("DD/MM/YYYY");
 }
 
-function getDisplayDate() {
-  return moment().tz("Asia/Bangkok").add(1, "day").format("DD/MM/YYYY");
+/* ================= RANDOM ================= */
+
+function weightedPick(users, weights){
+
+const total = users.reduce((s,id)=>s+(weights[id]||1),0);
+
+let r = Math.random()*total;
+
+for(const id of users){
+r -= (weights[id]||1);
+if(r<=0) return id;
+}
+
+return users[0];
+
 }
 
 /* ================= STATUS POST ================= */
 
-async function sendStatusPost() {
+async function sendStatusPost(){
 
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
+const guild = await client.guilds.fetch(GUILD_ID);
+const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
 
-  if (!channel) return;
+const data = loadData();
 
-  const data = loadData();
+const embed = new EmbedBuilder()
+.setColor("#2B8AF7")
+.setTitle(`📋 ลงสถานะเวรฟาร์มประจำวันที่ ${displayDate()}`)
+.setDescription("กดเลือกสถานะของคุณ\n⏳ ปิดรับ 23:59")
+.addFields(
+{ name:"🟢 ว่าง (0)",value:"-",inline:true},
+{ name:"🔴 ไม่ว่าง (0)",value:"-",inline:true}
+);
 
-  const embed = new EmbedBuilder()
-    .setColor("#2B8AF7")
-    .setTitle(`📋 ลงสถานะเวรฟาร์มประจำวันที่ ${getDisplayDate()}`)
-    .setDescription("กดเลือกสถานะของคุณ\n⏳ ปิดรับ 23:59")
-    .addFields(
-      { name: "🟢 ว่าง (0)", value: "-", inline: true },
-      { name: "🔴 ไม่ว่าง (0)", value: "-", inline: true }
-    );
+const row = new ActionRowBuilder().addComponents(
 
-  const row = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId("available")
+.setLabel("ว่าง")
+.setStyle(ButtonStyle.Success),
 
-    new ButtonBuilder()
-      .setCustomId("available")
-      .setLabel("ว่าง")
-      .setStyle(ButtonStyle.Success),
+new ButtonBuilder()
+.setCustomId("unavailable")
+.setLabel("ไม่ว่าง")
+.setStyle(ButtonStyle.Danger)
 
-    new ButtonBuilder()
-      .setCustomId("unavailable")
-      .setLabel("ไม่ว่าง")
-      .setStyle(ButtonStyle.Danger)
-  );
+);
 
-  const msg = await channel.send({
-    content: `<@&${REQUIRED_ROLE_ID}>`,
-    embeds: [embed],
-    components: [row]
-  });
+const msg = await channel.send({
+content:`<@&${REQUIRED_ROLE_ID}>`,
+embeds:[embed],
+components:[row]
+});
 
-  data.statusMessageId = msg.id;
-  data.statusDate = getTodayKey();
-  data.availability = {};
-  data.statusClosed = false;
+data.statusMessageId = msg.id;
+data.statusDate = todayKey();
+data.availability = {};
+data.statusClosed = false;
+data.currentPair = null;
+data.farmStatus = {};
 
-  saveData(data);
+saveData(data);
+
 }
 
 /* ================= UPDATE EMBED ================= */
 
-async function updateStatusEmbed() {
+async function updateStatus(){
 
-  const data = loadData();
-  if (!data.statusMessageId) return;
+const data = loadData();
+if(!data.statusMessageId) return;
 
-  try {
+try{
 
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
-    const msg = await channel.messages.fetch(data.statusMessageId);
+const guild = await client.guilds.fetch(GUILD_ID);
+const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
+const msg = await channel.messages.fetch(data.statusMessageId);
 
-    const available = [];
-    const unavailable = [];
+const free=[];
+const busy=[];
 
-    for (const [id, v] of Object.entries(data.availability)) {
-      v ? available.push(`<@${id}>`) : unavailable.push(`<@${id}>`);
-    }
+for(const [id,v] of Object.entries(data.availability)){
 
-    const embed = new EmbedBuilder()
-      .setColor(data.statusClosed ? "#6c757d" : "#2B8AF7")
-      .setTitle(`📋 ลงสถานะเวรฟาร์มประจำวันที่ ${getDisplayDate()}`)
-      .setDescription(
-        data.statusClosed
-          ? "🔒 ปิดรับแล้ว"
-          : "กดเลือกสถานะของคุณ\n⏳ ปิดรับ 23:59"
-      )
-      .addFields(
-        {
-          name: `🟢 ว่าง (${available.length})`,
-          value: available.join("\n") || "-",
-          inline: true
-        },
-        {
-          name: `🔴 ไม่ว่าง (${unavailable.length})`,
-          value: unavailable.join("\n") || "-",
-          inline: true
-        }
-      );
+if(v) free.push(`<@${id}>`);
+else busy.push(`<@${id}>`);
 
-    await msg.edit({ embeds: [embed] });
+}
 
-  } catch {}
+const embed = new EmbedBuilder()
+.setColor(data.statusClosed?"#6c757d":"#2B8AF7")
+.setTitle(`📋 ลงสถานะเวรฟาร์มประจำวันที่ ${displayDate()}`)
+.setDescription(data.statusClosed?"🔒 ปิดรับแล้ว":"กดเลือกสถานะของคุณ\n⏳ ปิดรับ 23:59")
+.addFields(
+{
+name:`🟢 ว่าง (${free.length})`,
+value:free.join("\n")||"-",
+inline:true
+},
+{
+name:`🔴 ไม่ว่าง (${busy.length})`,
+value:busy.join("\n")||"-",
+inline:true
+}
+);
+
+await msg.edit({embeds:[embed]});
+
+}catch{}
+
 }
 
 /* ================= MATCH PAIR ================= */
 
-async function matchPair() {
+async function matchPair(){
 
-  const data = loadData();
+const data = loadData();
 
-  const availableUsers = Object.entries(data.availability)
-    .filter(([_, v]) => v)
-    .map(([id]) => id);
+const freeUsers = Object.entries(data.availability)
+.filter(([_,v])=>v)
+.map(([id])=>id);
 
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const farmChannel = await guild.channels.fetch(FARM_CHANNEL_ID);
+const guild = await client.guilds.fetch(GUILD_ID);
+const farmChannel = await guild.channels.fetch(FARM_CHANNEL_ID);
 
-  if (availableUsers.length < 2) {
+if(freeUsers.length <2){
 
-    await farmChannel.send({
-      content: `⚠️ วันนี้มีคนกดว่างเพียง ${availableUsers.length} คน\nไม่สามารถจับคู่เวรฟาร์มได้`
-    });
+await farmChannel.send(
+`⚠️ คนว่างไม่พอ (${freeUsers.length} คน)`
+);
 
-    return;
-  }
+return;
 
-  /* ===== NEW WEIGHT SYSTEM ===== */
+}
 
-  const weights = {};
+const weights={};
 
-  for (const id of availableUsers) {
+for(const id of freeUsers){
 
-    if (data.weeklyFarm[id]) {
-      weights[id] = 1; // เคยโดนแล้ว
-    } else {
-      weights[id] = 5; // ยังไม่เคยโดน
-    }
+weights[id] = data.weeklyFarm[id]?1:5;
 
-  }
+}
 
-  const u1 = weightedPick(availableUsers, weights);
+const u1 = weightedPick(freeUsers,weights);
 
-  const u2 = weightedPick(
-    availableUsers.filter(u => u !== u1),
-    weights
-  );
+const u2 = weightedPick(
+freeUsers.filter(u=>u!==u1),
+weights
+);
 
-  if (!u1 || !u2) return;
+data.currentPair=[u1,u2];
 
-  data.currentPair = [String(u1), String(u2)];
+data.weeklyFarm[u1]=true;
+data.weeklyFarm[u2]=true;
 
-  /* NEW : mark weekly */
-  data.weeklyFarm[String(u1)] = true;
-  data.weeklyFarm[String(u2)] = true;
+data.farmStatus={};
 
-  data.farmStatus = {};
-  data.farmStatus[String(u1)] = { confirm: false };
-  data.farmStatus[String(u2)] = { confirm: false };
+data.farmStatus[u1]={confirm:false};
+data.farmStatus[u2]={confirm:false};
 
-  saveData(data);
+saveData(data);
 
-  const embed = new EmbedBuilder()
-    .setColor("#2b2d31")
-    .setTitle(`เวรฟาร์มประจำวันที่ ${getDisplayDate()}`)
-    .setDescription(
+const embed = new EmbedBuilder()
+.setColor("#2b2d31")
+.setTitle(`เวรฟาร์มประจำวันที่ ${displayDate()}`)
+.setDescription(
 `• <@${u1}>
 • <@${u2}>`
-    )
-    .setTimestamp();
+);
 
-  const row = new ActionRowBuilder().addComponents(
+const row = new ActionRowBuilder().addComponents(
 
-    new ButtonBuilder()
-      .setCustomId("confirm_farm")
-      .setLabel("ยืนยันฟาร์มเสร็จ")
-      .setStyle(ButtonStyle.Primary)
-  );
+new ButtonBuilder()
+.setCustomId("confirm_farm")
+.setLabel("ยืนยันฟาร์มเสร็จ")
+.setStyle(ButtonStyle.Primary)
 
-  await farmChannel.send({
-    content: `🚨 <@${u1}> <@${u2}> คุณถูกเลือกเป็นเวรฟาร์มวันนี้!`,
-    embeds: [embed],
-    components: [row]
-  });
+);
+
+await farmChannel.send({
+content:`🚨 <@${u1}> <@${u2}> คุณถูกเลือกเป็นเวรฟาร์มวันนี้!`,
+embeds:[embed],
+components:[row]
+});
+
 }
 
 /* ================= READY ================= */
 
-client.once("clientReady", async () => {
+client.once("clientReady", async()=>{
 
-  await rest.put(
-    Routes.applicationGuildCommands(client.user.id, GUILD_ID),
-    { body: commands }
-  );
+console.log("Bot Ready");
 
-  const data = loadData();
+await rest.put(
+Routes.applicationGuildCommands(client.user.id,GUILD_ID),
+{body:commands}
+);
 
-  let needNewPost = false;
+const data = loadData();
+const today = todayKey();
 
-  try {
+const guild = await client.guilds.fetch(GUILD_ID);
+const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
 
-    const guild = await client.guilds.fetch(GUILD_ID);
-    const channel = await guild.channels.fetch(ANNOUNCE_CHANNEL_ID);
+let needNew=false;
 
-    if (!data.statusMessageId) {
-      needNewPost = true;
-    } else {
-      try {
-        await channel.messages.fetch(data.statusMessageId);
-      } catch {
-        needNewPost = true;
-      }
-    }
+if(!data.statusMessageId) needNew=true;
 
-  } catch {
-    needNewPost = true;
-  }
+if(data.statusDate!==today) needNew=true;
 
-  if (needNewPost) {
-    await sendStatusPost();
-  }
+if(!needNew && data.statusMessageId){
 
-  /* CLOSE STATUS */
-  cron.schedule("59 23 * * *", async () => {
+try{
+await channel.messages.fetch(data.statusMessageId);
+}catch{
+needNew=true;
+}
 
-    const data = loadData();
+}
 
-    data.statusClosed = true;
-    data.currentPair = null;
-    data.farmStatus = {};
+if(needNew){
+console.log("Creating status embed");
+await sendStatusPost();
+}else{
+console.log("Embed already exists");
+}
 
-    saveData(data);
+/* ===== CRON ===== */
 
-    await updateStatusEmbed();
-    await matchPair();
+cron.schedule("59 23 * * *",async()=>{
 
-  }, { timezone: "Asia/Bangkok" });
+const data=loadData();
 
-  /* NEW DAY */
-  cron.schedule("0 0 * * *", async () => {
+data.statusClosed=true;
+saveData(data);
 
-    const data = loadData();
+await updateStatus();
+await matchPair();
 
-    if (data.currentPair) {
-      data.currentPair.forEach(id => {
+},{timezone:"Asia/Bangkok"});
 
-        if (data.farmStatus[id]?.confirm) {
-          data.farmCount[id] = (data.farmCount[id] || 0) + 1;
-        }
+cron.schedule("0 0 * * *",async()=>{
 
-      });
-    }
+const data=loadData();
 
-    saveData(data);
-    await sendStatusPost();
+if(data.currentPair){
 
-  }, { timezone: "Asia/Bangkok" });
+data.currentPair.forEach(id=>{
 
-  /* WEEKLY RESET */
-  cron.schedule("0 0 * * 1", async () => {
+if(data.farmStatus[id]?.confirm){
 
-    const data = loadData();
+data.farmCount[id]=(data.farmCount[id]||0)+1;
 
-    data.weeklyFarm = {};
+}
 
-    saveData(data);
+});
 
-    console.log("Weekly farm reset");
+}
 
-  }, { timezone: "Asia/Bangkok" });
+saveData(data);
+
+await sendStatusPost();
+
+},{timezone:"Asia/Bangkok"});
+
+cron.schedule("0 0 * * 1",async()=>{
+
+const data=loadData();
+
+data.weeklyFarm={};
+
+saveData(data);
+
+console.log("weekly reset");
+
+},{timezone:"Asia/Bangkok"});
 
 });
 
 /* ================= INTERACTION ================= */
 
-client.on("interactionCreate", async interaction => {
+client.on("interactionCreate",async interaction=>{
 
-  const data = loadData();
+const data=loadData();
 
-  if (interaction.isChatInputCommand()) {
+/* ===== COMMAND ===== */
 
-    if (interaction.commandName === "fine") {
+if(interaction.isChatInputCommand()){
 
-      const fine = data.fines[interaction.user.id] || 0;
+if(interaction.commandName==="fine"){
 
-      return interaction.reply({
-        content: `💰 ค่าปรับสะสม: ${fine.toLocaleString()} IC`,
-        flags: 64
-      });
-    }
+const fine=data.fines[interaction.user.id]||0;
 
-    if (interaction.commandName === "leaderboard") {
+return interaction.reply({
+content:`💰 ค่าปรับสะสม: ${fine.toLocaleString()} IC`,
+ephemeral:true
+});
 
-      const sorted = Object.entries(data.farmCount)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3);
+}
 
-      if (!sorted.length)
-        return interaction.reply({
-          content: "ยังไม่มีข้อมูลฟาร์ม",
-          flags: 64
-        });
+if(interaction.commandName==="leaderboard"){
 
-      const medals = ["🥇", "🥈", "🥉"];
+const sorted=Object.entries(data.farmCount)
+.sort((a,b)=>b[1]-a[1])
+.slice(0,3);
 
-      const desc = sorted
-        .map((u, i) => `${medals[i]} <@${u[0]}> — **${u[1]} ครั้ง**`)
-        .join("\n");
+if(!sorted.length)
+return interaction.reply({
+content:"ยังไม่มีข้อมูล",
+ephemeral:true
+});
 
-      const embed = new EmbedBuilder()
-        .setColor("#FFD700")
-        .setTitle("🏆 Leaderboard ฟาร์มเยอะที่สุด")
-        .setDescription(desc);
+const medal=["🥇","🥈","🥉"];
 
-      return interaction.reply({ embeds: [embed] });
-    }
-  }
+const desc=sorted
+.map((u,i)=>`${medal[i]} <@${u[0]}> — **${u[1]} ครั้ง**`)
+.join("\n");
 
-  if (!interaction.isButton()) return;
+const embed=new EmbedBuilder()
+.setColor("#FFD700")
+.setTitle("🏆 Leaderboard ฟาร์มเยอะสุด")
+.setDescription(desc);
 
-  if (data.statusClosed &&
-     (interaction.customId === "available" ||
-      interaction.customId === "unavailable")) {
+return interaction.reply({embeds:[embed]});
 
-    return interaction.reply({
-      content: "⛔ ปิดรับสถานะแล้ว",
-      flags: 64
-    });
-  }
+}
 
-  if (interaction.customId === "available")
-    data.availability[interaction.user.id] = true;
+}
 
-  if (interaction.customId === "unavailable")
-    data.availability[interaction.user.id] = false;
+/* ===== BUTTON ===== */
 
-  if (interaction.customId === "confirm_farm") {
+if(!interaction.isButton()) return;
 
-    const pair = (data.currentPair || []).map(String);
+if(data.statusClosed &&
+(interaction.customId==="available"||
+interaction.customId==="unavailable")){
 
-    if (!pair.includes(String(interaction.user.id)))
-      return interaction.reply({
-        content: "⛔ คุณไม่ใช่เวรฟาร์มวันนี้",
-        flags: 64
-      });
+return interaction.reply({
+content:"⛔ ปิดรับสถานะแล้ว",
+ephemeral:true
+});
 
-    if (data.farmStatus[interaction.user.id]?.confirm)
-      return interaction.reply({
-        content: "⚠️ คุณยืนยันไปแล้ว",
-        flags: 64
-      });
+}
 
-    data.farmStatus[interaction.user.id].confirm = true;
+if(interaction.customId==="available")
+data.availability[interaction.user.id]=true;
 
-    const [u1, u2] = data.currentPair;
+if(interaction.customId==="unavailable")
+data.availability[interaction.user.id]=false;
 
-    const status1 = data.farmStatus[u1]?.confirm ? "✅ ยืนยันแล้ว" : "❌ ยังไม่ยืนยัน";
-    const status2 = data.farmStatus[u2]?.confirm ? "✅ ยืนยันแล้ว" : "❌ ยังไม่ยืนยัน";
+if(interaction.customId==="confirm_farm"){
 
-    const embed = new EmbedBuilder()
-      .setColor("#2b2d31")
-      .setTitle(`เวรฟาร์มประจำวันที่ ${getDisplayDate()}`)
-      .setDescription(
-`• <@${u1}> — ${status1}
-• <@${u2}> — ${status2}`
-      );
+const pair=(data.currentPair||[]).map(String);
 
-    saveData(data);
+if(!pair.includes(String(interaction.user.id)))
+return interaction.reply({
+content:"⛔ วันนี้ไม่ใช่เวรของคุณ",
+ephemeral:true
+});
 
-    await interaction.update({
-      embeds: [embed],
-      components: interaction.message.components
-    });
+if(data.farmStatus[interaction.user.id]?.confirm)
+return interaction.reply({
+content:"⚠️ คุณยืนยันไปแล้ว",
+ephemeral:true
+});
 
-    if (data.farmStatus[u1]?.confirm &&
-        data.farmStatus[u2]?.confirm) {
+data.farmStatus[interaction.user.id].confirm=true;
 
-      await interaction.followUp({
-        content: "🎉 ทั้งคู่ยืนยันฟาร์มครบแล้ว!"
-      });
-    }
+const [u1,u2]=data.currentPair;
 
-    return;
-  }
+const s1=data.farmStatus[u1]?.confirm?"✅ ยืนยันแล้ว":"❌ ยังไม่ยืนยัน";
+const s2=data.farmStatus[u2]?.confirm?"✅ ยืนยันแล้ว":"❌ ยังไม่ยืนยัน";
 
-  saveData(data);
-  await updateStatusEmbed();
+const embed=new EmbedBuilder()
+.setColor("#2b2d31")
+.setTitle(`เวรฟาร์มประจำวันที่ ${displayDate()}`)
+.setDescription(
+`• <@${u1}> — ${s1}
+• <@${u2}> — ${s2}`
+);
 
-  interaction.reply({
-    content: "บันทึกแล้ว",
-    flags: 64
-  });
+saveData(data);
+
+await interaction.update({
+embeds:[embed],
+components:interaction.message.components
+});
+
+if(data.farmStatus[u1]?.confirm &&
+data.farmStatus[u2]?.confirm){
+
+await interaction.followUp({
+content:"🎉 ทั้งคู่ยืนยันฟาร์มครบแล้ว!"
+});
+
+}
+
+return;
+
+}
+
+saveData(data);
+await updateStatus();
+
+interaction.reply({
+content:"บันทึกแล้ว",
+ephemeral:true
+});
 
 });
 
