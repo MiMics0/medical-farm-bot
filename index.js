@@ -263,7 +263,7 @@ freeUsers.filter(u=>u!==u1),
 weights
 )
 
-data.currentPair=[u1,u2]
+data.currentPair=[String(u1), String(u2)]
 
 data.weeklyFarm[u1]=true
 data.weeklyFarm[u2]=true
@@ -353,6 +353,7 @@ cron.schedule("59 23 * * *",async()=>{
 const data=loadData()
 
 data.statusClosed=true
+
 saveData(data)
 
 await updateStatus()
@@ -447,7 +448,8 @@ data.availability[interaction.user.id]=false
 
 if(interaction.customId==="confirm_farm"){
 
-const pair=(data.currentPair||[]).map(String)
+const pair=data.currentPair||[]
+if (!pair.includes(interaction.user.id))
 
 if(!pair.includes(String(interaction.user.id)))
 return interaction.reply({
